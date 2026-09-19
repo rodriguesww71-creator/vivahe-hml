@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Body, Controller, Get, HttpException, HttpStatus, Module, Param, Patch, Post } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { Pool, PoolClient } from 'pg';
 
@@ -55,5 +56,5 @@ class CoreController {
   }
 }
 @Module({ controllers: [CoreController] }) class AppModule {}
-async function bootstrap() { const app = await NestFactory.create(AppModule); app.enableCors(); app.useStaticAssets(join(process.cwd(), 'public')); await app.listen(Number(process.env.PORT || 3000), '0.0.0.0'); }
+async function bootstrap() { const app = await NestFactory.create<NestExpressApplication>(AppModule); app.enableCors(); app.useStaticAssets(join(process.cwd(), 'public')); await app.listen(Number(process.env.PORT || 3000), '0.0.0.0'); }
 bootstrap();
