@@ -1,12 +1,13 @@
 import 'reflect-metadata';
 import { Body, Controller, Get, HttpException, HttpStatus, Module, Param, Patch, Post } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { join } from 'path';
 import { Pool, PoolClient } from 'pg';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false } });
 async function tx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> { const client = await pool.connect(); try { await client.query('BEGIN'); const result = await fn(client); await client.query('COMMIT'); return result; } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); } }
 
-@Controller()
+@Controller('api')
 class CoreController {
   @Get('/') root() { return { service: 'VIVAH.ê Core HML', status: 'ok', version: '0.2.1' }; }
   @Get('/health') async health() { if (!process.env.DATABASE_URL) return { status: 'degraded', database: 'not-configured', environment: 'hml' }; await pool.query('select 1'); return { status: 'ok', database: 'connected', environment: 'hml' }; }
@@ -54,5 +55,5 @@ class CoreController {
   }
 }
 @Module({ controllers: [CoreController] }) class AppModule {}
-async function bootstrap() { const app = await NestFactory.create(AppModule); app.enableCors(); await app.listen(Number(process.env.PORT || 3000), '0.0.0.0'); }
+async function bootstrap() { const app = await NestFactory.create(AppModule); app.enableCors(); app.useStaticAssets(join(process.cwd(), 'public')); await app.listen(Number(process.env.PORT || 3000), '0.0.0.0'); }
 bootstrap();
