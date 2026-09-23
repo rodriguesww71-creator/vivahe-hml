@@ -10,7 +10,7 @@ async function tx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> { const
 
 @Controller('api')
 class CoreController {
-  @Get('/') root() { return { service: 'VIVAH.ê Core HML', status: 'ok', version: '0.2.1' }; }
+  @Get('/') root() { return { service: 'VIVAH.ê Core HML', status: 'ok', version: '0.3.0' }; }
   @Get('/health') async health() { if (!process.env.DATABASE_URL) return { status: 'degraded', database: 'not-configured', environment: 'hml' }; await pool.query('select 1'); return { status: 'ok', database: 'connected', environment: 'hml' }; }
 
   @Post('/accounts/pf')
@@ -38,6 +38,32 @@ class CoreController {
       await client.query(`insert into outbox_events(event_type,aggregate_type,aggregate_id,payload) values('partner.created','partner',$1,$2::jsonb)`, [account.id, JSON.stringify({ accountId: account.id, status: 'PENDING' })]);
       return { account, partner: partnerResult.rows[0] };
     });
+  }
+
+  @Post('/contracts/simulate')
+  async simulateContract(@Body() body: { partnerNet?: number; percentageCosts?: number; installments?: number }) {
+    const partnerNet = Number(body.partnerNet ?? 0); const percentageCosts = Number(body.percentageCosts ?? 0.20); const installments = Number(body.installments ?? 12);
+    if (partnerNet <= 0 || percentageCosts < 0 || percentageCosts >= 1 || installments < 1) throw new HttpException('invalid simulation parameters', HttpStatus.BAD_REQUEST);
+    const publicPrice = partnerNet / (1 - percentageCosts);
+    return { environment: 'hml', partnerNet, percentageCosts, publicPrice: Number(publicPrice.toFixed(2)), installmentValue: Number((publicPrice / installments).toFixed(2)), installments, milestones: [25,25,25,25], status: 'SIMULATED' };
+  }
+
+  @Post('/contracts/:id/events')
+  async contractEvent(@Param('id') id: string, @Body() body: { event?: string; actor?: string; note?: string }) {
+    const allowed = ['PAYMENT_APPROVED','PARTNER_CONFIRMED','MILESTONE_VALIDATED','MILESTONE_BLOCKED','EVENT_COMPLETED','CHECKOUT_COMPLETED','REVIEW_SUBMITTED'];
+    if (!body.event || !allowed.includes(body.event)) throw new HttpException('valid event is required', HttpStatus.BAD_REQUEST);
+    const actor = body.actor || 'hml-ui';
+    if (!process.env.DATABASE_URL) return { contractId: id, event: body.event, actor, note: body.note ?? null, recorded: false, environment: 'hml', reason: 'database-not-configured' };
+    await pool.query(`insert into audit_log(actor,action,entity_type,entity_id,payload) values($1,$2,'contract',$3,$4::jsonb)`, [actor, body.event, id, JSON.stringify({ note: body.note ?? null })]);
+    await pool.query(`insert into outbox_events(event_type,aggregate_type,aggregate_id,payload) values($1,'contract',$2,$3::jsonb)`, ['contract.'+body.event.toLowerCase(), id, JSON.stringify({ contractId: id, event: body.event })]);
+    return { contractId: id, event: body.event, actor, recorded: true, environment: 'hml' };
+  }
+
+  @Get('/contracts/:id/state')
+  async contractState(@Param('id') id: string) {
+    if (!process.env.DATABASE_URL) return { contractId: id, status: 'HML_DEMO', timeline: [] };
+    const { rows } = await pool.query(`select action,actor,payload,created_at from audit_log where entity_type='contract' and entity_id=$1 order by created_at asc`, [id]);
+    return { contractId: id, timeline: rows, lastEvent: rows.length ? rows[rows.length-1].action : null };
   }
 
   @Get('/accounts/:id') async getAccount(@Param('id') id: string) { const { rows } = await pool.query(`select a.id,a.account_type,a.email,a.phone,a.display_name,a.cpf,a.cnpj,a.created_at,a.updated_at,p.legal_name,p.trade_name,p.status as partner_status,p.reviewed_at,p.reviewed_by,p.review_note from accounts a left join partner_profiles p on p.account_id=a.id where a.id=$1`, [id]); if (!rows[0]) throw new HttpException('account not found', HttpStatus.NOT_FOUND); return rows[0]; }
