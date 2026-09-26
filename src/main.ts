@@ -5,13 +5,13 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { Pool, PoolClient } from 'pg';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false } });
+const hasDb=Boolean(process.env.DATABASE_URL);const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false } });
 async function tx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> { const client = await pool.connect(); try { await client.query('BEGIN'); const result = await fn(client); await client.query('COMMIT'); return result; } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); } }
 
 @Controller('api')
 class CoreController {
   @Get('/') root() { return { service: 'VIVAH.ê Core HML', status: 'ok', version: '0.4.0' }; }
-  @Get('/health') async health() { if (!process.env.DATABASE_URL) return { status: 'degraded', database: 'not-configured', environment: 'hml' }; await pool.query('select 1'); return { status: 'ok', database: 'connected', environment: 'hml' }; }
+  @Get('/health') async health() { if (!hasDb) return { status: 'degraded', database: 'not-configured', environment: 'hml' }; await pool.query('select 1'); return { status: 'ok', database: 'connected', environment: 'hml' }; }
 
   @Post('/accounts/pf')
   async createPf(@Body() body: { email?: string; phone?: string; displayName?: string; cpf?: string }) {
@@ -30,6 +30,7 @@ class CoreController {
   async createPj(@Body() body: { email?: string; phone?: string; displayName?: string; cnpj?: string; legalName?: string; tradeName?: string }) {
     const { email, phone, displayName, cnpj, legalName, tradeName } = body;
     if (!email || !displayName || !cnpj || !legalName) throw new HttpException('email, displayName, cnpj and legalName are required', HttpStatus.BAD_REQUEST);
+    if(!hasDb){const id='hml-'+Date.now();return {account:{id,account_type:'PJ',email:email.trim().toLowerCase(),phone:phone??null,display_name:displayName.trim(),cnpj:cnpj.replace(/\D/g,'')},partner:{account_id:id,legal_name:legalName.trim(),trade_name:tradeName?.trim()??null,status:'PENDING'},persisted:false,environment:'hml'};}
     return tx(async client => {
       const accountResult = await client.query(`insert into accounts(account_type,email,phone,display_name,cnpj) values('PJ',$1,$2,$3,$4) returning id,account_type,email,phone,display_name,cnpj,created_at`, [email.trim().toLowerCase(), phone ?? null, displayName.trim(), cnpj.replace(/\D/g, '')]);
       const account = accountResult.rows[0];
@@ -46,7 +47,7 @@ class CoreController {
     if (!body.cep || !body.city || !body.state || !Number.isFinite(Number(body.latitude)) || !Number.isFinite(Number(body.longitude))) throw new HttpException('address, latitude and longitude are required', HttpStatus.BAD_REQUEST);
     if (body.coverageMode !== 'CITY' && (radius === null || ![3,5,7,10,15,20].includes(radius))) throw new HttpException('invalid coverage radius', HttpStatus.BAD_REQUEST);
     const payload = { cep:String(body.cep).replace(/\\D/g,''), street:body.street, number:body.number, complement:body.complement||null, district:body.district, city:body.city, state:body.state, latitude:Number(body.latitude), longitude:Number(body.longitude), coverageMode:body.coverageMode === 'CITY' ? 'CITY' : 'RADIUS', radiusKm:radius };
-    if (!process.env.DATABASE_URL) return { partnerId:id, ...payload, persisted:false, environment:'hml' };
+    if (!hasDb) return { partnerId:id, ...payload, persisted:false, environment:'hml' };
     await pool.query(`insert into audit_log(actor,action,entity_type,entity_id,payload) values('hml-ui','PARTNER_COVERAGE_UPDATED','partner',$1,$2::jsonb)`,[id,JSON.stringify(payload)]);
     await pool.query(`insert into outbox_events(event_type,aggregate_type,aggregate_id,payload) values('partner.coverage_updated','partner',$1,$2::jsonb)`,[id,JSON.stringify({partnerId:id,...payload})]);
     return { partnerId:id, ...payload, persisted:true, matchingEligible:true };
