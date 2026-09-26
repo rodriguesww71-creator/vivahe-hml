@@ -10,23 +10,24 @@ document.querySelector('#dinner').onchange=e=>document.querySelector('#dinnerBox
 cep.addEventListener('blur',async()=>{const v=cep.value.replace(/\D/g,'');if(v.length!==8)return;cepStatus.textContent='Buscando endereço...';try{const r=await fetch('https://viacep.com.br/ws/'+v+'/json/');const d=await r.json();if(d.erro)throw new Error();street.value=d.logradouro||'';district.value=d.bairro||'';city.value=d.localidade||'';state.value=d.uf||'';municipalityCode=d.ibge||null;cepStatus.textContent='Endereço localizado. Confira e edite se necessário.';await geocodeFinalAddress();updateMap()}catch{cepStatus.textContent='Não foi possível localizar automaticamente. Preencha o endereço manualmente.'}});
 
 let generalFiles=[],envs=[];const modeRadios=[...document.querySelectorAll('input[name=photoMode]')],generalBox=document.querySelector('#generalPhotos'),envBox=document.querySelector('#environmentPhotos'),envList=document.querySelector('#envList');function totalPhotos(){return document.querySelector('input[name=photoMode]:checked').value==='GENERAL'?generalFiles.length:envs.reduce((n,e)=>n+e.files.length,0)}function validatePhotos(){const n=totalPhotos();photoStatus.textContent=n+' foto(s) selecionada(s) • permitido: 5 a 10.';return n>=5&&n<=10}function previews(el,files){el.innerHTML='';files.forEach(f=>{const i=document.createElement('img');i.src=URL.createObjectURL(f);el.appendChild(i)})}generalPhotoInput.onchange=e=>{generalFiles=[...e.target.files].slice(0,10);generalCount.textContent=generalFiles.length+' de 10 fotos';previews(generalPreview,generalFiles);validatePhotos()};function renderEnvs(){envList.innerHTML='';envs.forEach((env,idx)=>{const d=document.createElement('div');d.className='env-card';d.innerHTML='<label>Nome do ambiente '+(idx+1)+'</label><input class="env-name" value="'+env.name.replace(/"/g,'&quot;')+'" placeholder="Ex.: Salão principal, brinquedoteca"><label>Fotos deste ambiente</label><input class="env-files" type="file" accept="image/*" multiple><div class="photo-count">'+env.files.length+' foto(s)</div><div class="photo-preview"></div><button type="button" class="secondary remove-env">Remover ambiente</button>';d.querySelector('.env-name').oninput=e=>env.name=e.target.value;d.querySelector('.env-files').onchange=e=>{const remaining=Math.max(0,10-(totalPhotos()-env.files.length));env.files=[...e.target.files].slice(0,remaining);renderEnvs();validatePhotos()};d.querySelector('.remove-env').onclick=()=>{envs.splice(idx,1);renderEnvs();validatePhotos()};previews(d.querySelector('.photo-preview'),env.files);envList.appendChild(d)})}addEnv.onclick=()=>{if(envs.length>=5){alert('Máximo de 5 ambientes.');return}envs.push({name:'',files:[]});renderEnvs()};modeRadios.forEach(r=>r.onchange=()=>{const env=r.value==='ENVIRONMENTS'&&r.checked;generalBox.classList.toggle('hidden',env);envBox.classList.toggle('hidden',!env);if(env&&envs.length===0){envs.push({name:'',files:[]});renderEnvs()}validatePhotos()});
-function show(){sections.forEach((x,i)=>x.classList.toggle('hidden',i!==p));steps.forEach((x,i)=>x.classList.toggle('on',i<=p));back.classList.toggle('hidden',p===0);next.classList.toggle('hidden',p===5);done.classList.toggle('hidden',p!==5);if(p===3){updateMap();setTimeout(()=>{if(map){map.invalidateSize();drawCoverage()}},150)}}
-back.onclick=function(e){e.preventDefault();if(p>0){p-=1;show();window.scrollTo(0,0)}};
-next.onclick=function(e){window.vivaNext(e)};
-window.vivaNext=async function(e){
- if(e){e.preventDefault();e.stopPropagation()}
- const req=[...sections[p].querySelectorAll('[required]')];
- for(const x of req){
-   if(!String(x.value||'').trim()){x.focus();alert('Preencha todos os campos obrigatórios.');return}
-   if(x.type==='email'&&!String(x.value||'').includes(String.fromCharCode(64))){x.focus();alert('Informe um e-mail válido.');return}
+function show(){
+ sections.forEach((el,i)=>el.classList.toggle('hidden',i!==p));
+ steps.forEach((el,i)=>el.classList.toggle('on',i<=p));
+ back.classList.toggle('hidden',p===0); next.classList.toggle('hidden',p===5); done.classList.toggle('hidden',p!==5);
+ if(p===3){try{updateMap();setTimeout(()=>{if(map){map.invalidateSize();drawCoverage()}},150)}catch(err){console.warn('Mapa indisponível',err)}}
+}
+function currentStepIsValid(){
+ const required=Array.from(sections[p].querySelectorAll('[required]'));
+ for(const el of required){
+   if(!String(el.value||'').trim()){el.focus();alert('Preencha todos os campos obrigatórios.');return false}
+   if(el.type==='email' && String(el.value||'').indexOf('@')<1){el.focus();alert('Informe um e-mail válido.');return false}
  }
- if(p===2){
-   const located=await geocodeFinalAddress();
-   if(!located||lat===null||lng===null){alert('Confirme o endereço para posicionarmos o estabelecimento no mapa.');return}
- }
- if(p===4&&!validatePhotos()){alert('Inclua entre 5 e 10 fotos no total.');return}
- if(p<5){p+=1;show();window.scrollTo(0,0)}
-};
+ if(p===4&&!validatePhotos()){alert('Inclua entre 5 e 10 fotos no total.');return false}
+ return true
+}
+next.onclick=function(e){e.preventDefault();e.stopPropagation();if(!currentStepIsValid())return;if(p<5){p++;show();window.scrollTo(0,0)}};
+back.onclick=function(e){e.preventDefault();e.stopPropagation();if(p>0){p--;show();window.scrollTo(0,0)}};
+show();
 
 form.onsubmit=async e=>{e.preventDefault();done.disabled=true;done.textContent='Enviando...';const data=Object.fromEntries(new FormData(form));data.photoMode=document.querySelector('input[name=photoMode]:checked').value;data.photoCount=totalPhotos();data.environments=envs.map(e=>({name:e.name,photoCount:e.files.length}));data.staffItems=[...form.querySelectorAll('input[name=staffItems]:checked')].map(x=>x.value);data.structureItems=[...form.querySelectorAll('input[name=structureItems]:checked')].map(x=>x.value);data.includedItems=[...form.querySelectorAll('input[name=includedItems]:checked')].map(x=>x.value);if(data.otherIncluded)data.includedItems.push(data.otherIncluded);data.coverageMode=wholeCity.checked?'CITY':'RADIUS';data.radiusKm=wholeCity.checked?null:radii[+radius.value];data.fullAddress=addressText();data.latitude=lat;data.longitude=lng;data.municipalityCode=municipalityCode;try{const res=await fetch('/api/accounts/pj',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:data.email,phone:data.phone,displayName:data.tradeName||data.legalName,cnpj:data.cnpj,legalName:data.legalName,tradeName:data.tradeName})});const payload=await res.json().catch(()=>({}));if(!res.ok)throw new Error(payload.message||'Não foi possível concluir o cadastro');data.status=payload.partner?.status||'PENDING';data.accountId=payload.account?.id||null;if(data.accountId&&lat!==null){const cov=await fetch('/api/partners/'+data.accountId+'/coverage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cep:data.cep,street:data.street,number:data.number,complement:data.complement,district:data.district,city:data.city,state:data.state,latitude:lat,longitude:lng,municipalityCode:municipalityCode,coverageMode:data.coverageMode,radiusKm:data.radiusKm})});if(!cov.ok)throw new Error('Não foi possível gravar a área de atendimento no Core')}data.createdAt=new Date().toISOString();localStorage.setItem('vivahe_partner_hml',JSON.stringify(data));document.querySelector('#success').innerHTML='<h2>Cadastro recebido ✓</h2><p>Empresa criada no Core VIVAH.ê e enviada para análise.</p><p><b>Status:</b> '+data.status+'</p><p><b>ID HML:</b> '+(data.accountId||'—')+'</p><div class="ok">Próxima etapa: acompanhar a análise e acessar a área operacional do Parceiro.</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px"><button class="primary" onclick="location.href=&quot;/parceiro-painel-hml.html&quot;">Continuar para área do parceiro</button><button class="secondary" onclick="location.reload()">Novo cadastro</button></div>';form.classList.add('hidden');document.querySelector('#success').classList.remove('hidden')}catch(err){alert('Erro no cadastro: '+err.message);done.disabled=false;done.textContent='Enviar para análise'}};
 </script></body></html>
