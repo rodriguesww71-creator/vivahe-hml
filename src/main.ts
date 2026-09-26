@@ -44,7 +44,7 @@ class CoreController {
   async saveCoverage(@Param('id') id: string, @Body() body: any) {
     const radius = body.coverageMode === 'CITY' ? null : Number(body.radiusKm);
     if (!body.cep || !body.city || !body.state || !Number.isFinite(Number(body.latitude)) || !Number.isFinite(Number(body.longitude))) throw new HttpException('address, latitude and longitude are required', HttpStatus.BAD_REQUEST);
-    if (body.coverageMode !== 'CITY' && ![3,5,7,10,15,20].includes(radius)) throw new HttpException('invalid coverage radius', HttpStatus.BAD_REQUEST);
+    if (body.coverageMode !== 'CITY' && (radius === null || ![3,5,7,10,15,20].includes(radius))) throw new HttpException('invalid coverage radius', HttpStatus.BAD_REQUEST);
     const payload = { cep:String(body.cep).replace(/\\D/g,''), street:body.street, number:body.number, complement:body.complement||null, district:body.district, city:body.city, state:body.state, latitude:Number(body.latitude), longitude:Number(body.longitude), coverageMode:body.coverageMode === 'CITY' ? 'CITY' : 'RADIUS', radiusKm:radius };
     if (!process.env.DATABASE_URL) return { partnerId:id, ...payload, persisted:false, environment:'hml' };
     await pool.query(`insert into audit_log(actor,action,entity_type,entity_id,payload) values('hml-ui','PARTNER_COVERAGE_UPDATED','partner',$1,$2::jsonb)`,[id,JSON.stringify(payload)]);
